@@ -47,7 +47,6 @@ function loadConfig(cliArgs = {}) {
     .split(',')
     .map(s => s.trim())
     .filter(Boolean);
-  const refreshLog = env.REFRESH_LOG === 'true' || env.REFRESH_LOG === '1';
 
   // Resolve ~ and %VAR% in paths
   let resolvedDbPath = dbPath.replace(/^~/, process.env.USERPROFILE || process.env.HOME || '');
@@ -62,7 +61,6 @@ function loadConfig(cliArgs = {}) {
     logLevel,
     staleThresholdSeconds,
     excludedProfiles,
-    refreshLog,
   };
 }
 

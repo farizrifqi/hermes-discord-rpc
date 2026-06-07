@@ -31,6 +31,13 @@ const HERMES_BASE = path.join(
   'hermes'
 );
 
+// Simple path sanitizer for logs (scrubs username from paths)
+function _sanitize(p) {
+  if (!p) return p;
+  const home = process.env.USERPROFILE || process.env.HOME || '';
+  return p.replace(new RegExp(home.replace(/\\/g, '\\\\').replace(/:/g, '\\:'), 'g'), '$HOME');
+}
+
 // Model name → friendly short name
 const MODEL_ALIASES = {
   'openrouter/owl-alpha': 'OWL α',
@@ -90,15 +97,8 @@ class StateMonitor {
     // ---- Hook file watcher ----
     if (fs.existsSync(ACTIVITY_FILE)) {
       this._usingHook = true;
-      this.log.info(`Hook activity file detected: ${ACTIVITY_FILE}`);
       const initial = this._readHookActivity();
       if (initial) this._cachedHookData = initial;
-    } else if (fs.existsSync(ACTIVITY_DIR)) {
-      this.log.info(`Hook directory exists but no activity file yet — watching for creation`);
-    } else {
-      this.log.info('No hook activity file — using SQLite polling only');
-      this.log.info('Install the gateway hook for real-time updates:');
-      this.log.info('  ~/.hermes/hooks/discord-rpc-activity/');
     }
     this._startHookWatcher();
   }
@@ -107,48 +107,50 @@ class StateMonitor {
    * Discover and load ALL state.db files:
    * - Default: %LOCALAPPDATA%\hermes\state.db  (profile = "default")
    * - Profiles: %LOCALAPPDATA%\hermes\profiles\<name>\state.db
-   *
-   * Excluded profiles (from config) are skipped.
    */
   async _loadAllDatabases() {
     const SQL = await initSqlJs();
     const dbPaths = this._discoverDatabasePaths();
+    const loaded = [];
+    const skipped = [];
 
     for (const { profile, dbPath } of dbPaths) {
       if (this._excluded.has(profile)) {
-        this.log.info(`  Skipping excluded profile: ${profile}`);
+        skipped.push(profile);
         continue;
       }
       try {
         const buffer = fs.readFileSync(dbPath);
         const db = new SQL.Database(buffer);
         this._dbs[profile] = db;
-        this.log.info(`  Loaded: ${profile} → ${dbPath}`);
+        loaded.push(profile);
       } catch (e) {
-        this.log.warn(`  Failed to load ${profile}: ${e.message}`);
+        this.log.warn(`Failed to load ${profile}: ${e.message}`);
       }
     }
 
-    const loaded = Object.keys(this._dbs).length;
-    this.log.info(`Databases loaded: ${loaded} (${Object.keys(this._dbs).join(', ')})`);
-    if (this._excluded.size > 0) {
-      this.log.info(`Excluded profiles: ${[...this._excluded].join(', ')}`);
+    const summary = `Profiles: ${loaded.length}`;
+    if (loaded.length > 0) {
+      const names = loaded.length <= 5
+        ? loaded.join(', ')
+        : `${loaded.slice(0, 3).join(', ')}, ... +${loaded.length - 3} more`;
+      this.log.info(`  ${summary} (${names})`);
+    } else {
+      this.log.info(`  ${summary}`);
+    }
+    if (skipped.length > 0) {
+      this.log.info(`  Excluded: ${skipped.join(', ')}`);
     }
   }
 
-  /**
-   * Returns an array of { profile, dbPath } for all discovered state.db files.
-   */
   _discoverDatabasePaths() {
     const results = [];
 
-    // Default (unnamed) state.db
     const defaultDb = path.join(HERMES_BASE, 'state.db');
     if (fs.existsSync(defaultDb)) {
       results.push({ profile: 'default', dbPath: defaultDb });
     }
 
-    // Profile state.db files
     const profilesDir = path.join(HERMES_BASE, 'profiles');
     if (fs.existsSync(profilesDir)) {
       let dirs;
@@ -164,9 +166,6 @@ class StateMonitor {
     return results;
   }
 
-  /**
-   * Close all loaded databases.
-   */
   _closeAllDatabases() {
     for (const [profile, db] of Object.entries(this._dbs)) {
       try { db.close(); } catch (e) { /* ignore */ }
@@ -174,7 +173,7 @@ class StateMonitor {
     this._dbs = {};
   }
 
-  // ---- Hook watcher (unchanged logic) ----
+  // ---- Hook watcher ----
 
   _startHookWatcher() {
     try {
@@ -204,7 +203,7 @@ class StateMonitor {
           }
         }, 100);
       });
-      this.log.info(`File watcher active on: ${watchTarget}`);
+      this.log.info(`  Hook:   watching ${_sanitize(watchTarget)}`);
     } catch (e) {
       this.log.warn(`Could not start file watcher: ${e.message}`);
     }
@@ -239,10 +238,6 @@ class StateMonitor {
 
   // ---- Multi-profile session scanning ----
 
-  /**
-   * Query a single profile's state.db for active sessions.
-   * Returns array of session rows with an added `_profile` field.
-   */
   _queryProfileSessions(db, profile, now) {
     try {
       const cutoff = now - this._staleThreshold;
@@ -273,10 +268,6 @@ class StateMonitor {
     }
   }
 
-  /**
-   * Scan ALL loaded databases and return the single most recently active session
-   * across all profiles. This tells us which agent is currently working.
-   */
   _getMostActiveSession(now = Date.now()) {
     let best = null;
 
@@ -284,7 +275,7 @@ class StateMonitor {
       const sessions = this._queryProfileSessions(db, profile, now);
       if (sessions.length === 0) continue;
 
-      const top = sessions[0]; // most recent in this profile
+      const top = sessions[0];
       if (!best || (top.last_msg_ms || 0) > (best.last_msg_ms || 0)) {
         best = top;
       }
@@ -317,6 +308,7 @@ class StateMonitor {
         iteration: hook.iteration || 0,
         dataSource: 'hook',
         profile: null,
+        lastSeen: now,
       };
       this._lastState = state;
       return state;
@@ -326,13 +318,13 @@ class StateMonitor {
     const primary = this._getMostActiveSession(now);
 
     if (!primary) {
-      // Truly idle — no active sessions in any profile
       this._lastState = {
         status: 'idle',
         detail: 'Waiting for tasks',
         agentLabel: null, model: null, startedAt: null,
         activeCount: 0, recentTool: null, toolEmoji: null,
         source: null, iteration: 0, dataSource: 'sqlite', profile: null,
+        lastSeen: now,
       };
       return this._lastState;
     }
@@ -353,6 +345,7 @@ class StateMonitor {
       iteration: 0,
       dataSource: 'sqlite',
       profile: primary._profile,
+      lastSeen: now,
     };
     this._lastState = state;
     return state;
@@ -360,6 +353,7 @@ class StateMonitor {
 
   getLastState() { return this._lastState; }
   isUsingHook() { return this._usingHook; }
+  getProfileCount() { return Object.keys(this._dbs).length; }
 }
 
 module.exports = { StateMonitor, ACTIVITY_FILE, MODEL_ALIASES, TOOL_EMOJI, SOURCE_ICONS };
