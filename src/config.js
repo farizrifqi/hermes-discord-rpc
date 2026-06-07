@@ -40,9 +40,13 @@ function loadConfig(cliArgs = {}) {
   const apiUrl = cliArgs.apiUrl || env.HERMES_API_URL || null;
   const activityFile = cliArgs.activityFile || env.HERMES_ACTIVITY_FILE || null;
   const logLevel = cliArgs.logLevel || env.LOG_LEVEL || 'info';
+  const staleThresholdSeconds = parseInt(
+    cliArgs.staleThreshold || env.STALE_THRESHOLD_SECONDS || '1800', 10
+  );
 
-  // Resolve ~ in paths
-  const resolvedDbPath = dbPath.replace(/^~/, process.env.USERPROFILE || process.env.HOME || '');
+  // Resolve ~ and %VAR% in paths
+  let resolvedDbPath = dbPath.replace(/^~/, process.env.USERPROFILE || process.env.HOME || '');
+  resolvedDbPath = resolvedDbPath.replace(/%([^%]+)%/g, (_, name) => process.env[name] || '');
 
   return {
     clientId,
@@ -51,6 +55,7 @@ function loadConfig(cliArgs = {}) {
     apiUrl,
     activityFile,
     logLevel,
+    staleThresholdSeconds,
   };
 }
 

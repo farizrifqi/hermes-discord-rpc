@@ -64,8 +64,8 @@ const TOOL_EMOJI = {
 };
 
 class StateMonitor {
-  constructor(config, logger) {
-    this.config = config;
+  constructor(config, logger) { console.log("CTOR:", typeof config, typeof logger, Object.keys(config || {}));
+    this.config = logger;
     this.log = logger;
     this.db = null;
     this._lastState = null;

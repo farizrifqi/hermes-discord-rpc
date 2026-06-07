@@ -4,8 +4,16 @@ const { Client } = require('discord-rpc');
 
 /**
  * DiscordRPC manages the Discord IPC connection and presence updates.
- * Handles reconnection, rate limiting, and graceful shutdown.
+ *
+ * Presence layout:
+ *   details  = "Hermes Agent"  (always — this is the app name)
+ *   state    = what it's doing right now (changes dynamically)
+ *   largeImageKey  = "hermes-logo"
+ *   largeImageText = agent label (model + source)
+ *   smallImageKey  = tool emoji icon (when a tool was recently used)
+ *   smallImageText = "🔧 tool_name"
  */
+
 class DiscordRPC {
   constructor(config, logger) {
     this.config = config;
@@ -21,9 +29,6 @@ class DiscordRPC {
     this._destroyed = false;
   }
 
-  /**
-   * Connect to Discord via IPC
-   */
   async connect() {
     if (this._destroyed) return;
 
@@ -60,10 +65,6 @@ class DiscordRPC {
     }
   }
 
-  /**
-   * Update Discord Rich Presence with current state.
-   * Respects rate limiting (1 update per 15s).
-   */
   async updatePresence(state) {
     if (!this.connected || !this.client) {
       this.log.debug('Not connected to Discord, skipping presence update');
@@ -85,7 +86,7 @@ class DiscordRPC {
       const activity = this._buildActivity(state);
       await this.client.setActivity(activity);
       this.lastUpdate = Date.now();
-      this.log.debug(`Presence updated: ${activity.details}`);
+      this.log.info(`Presence: "${activity.state}" | ${activity.largeImageText}`);
       return true;
     } catch (err) {
       this.log.error(`Failed to update presence: ${err.message}`);
@@ -94,50 +95,102 @@ class DiscordRPC {
   }
 
   /**
-   * Build Discord activity object from presence state
+   * Build Discord Rich Presence activity from state.
+   *
+   * Discord Rich Presence fields:
+   *   details        — top line (128 char max) — "Hermes Agent"
+   *   state          — bottom line (128 char max) — what it's doing
+   *   largeImageKey  — big image asset key
+   *   largeImageText — hover text for big image — agent/model info
+   *   smallImageKey  — small image asset key (tool icon)
+   *   smallImageText — hover text for small image — tool name
+   *   startTimestamp — shows elapsed time clock
+   *   instance       — whether it's an instance
    */
   _buildActivity(state) {
     const activity = {
       details: 'Hermes Agent',
       state: 'Idle — waiting for tasks',
       largeImageKey: 'hermes-logo',
-      largeImageText: 'Hermes Agent',
+      largeImageText: 'Hermes Agent by Nous Research',
       instance: false,
     };
 
     if (state.status === 'idle') {
-      activity.state = 'Idle — waiting for tasks';
+      // ── Idle state ──
+      activity.state = '💤 Idle — waiting for tasks';
+      activity.largeImageText = 'Hermes Agent — Idle';
       activity.startTimestamp = undefined;
+      delete activity.smallImageKey;
+      delete activity.smallImageText;
+
     } else if (state.status === 'active') {
-      if (state.taskCount > 1) {
-        activity.state = `${state.taskCount} tasks in progress`;
+      if (state.activeCount > 1) {
+        // ── Multi-tasking ──
+        activity.state = `⚡ ${state.activeCount} sessions active`;
         activity.details = 'Hermes Agent';
+        activity.largeImageText = state.agentLabel || 'Multi-session';
+
+        // Show the most recent tool across all sessions
+        if (state.recentTool) {
+          const emoji = state.toolEmoji || '🔧';
+          activity.smallImageText = `${emoji} ${state.recentTool}`;
+        } else {
+          delete activity.smallImageKey;
+          delete activity.smallImageText;
+        }
+
+        if (state.startedAt) {
+          activity.startTimestamp = state.startedAt * 1000;
+        }
+
       } else {
-        // Single task: show the detail
-        const detail = state.detail || 'Working';
-        // Discord has a 128-char limit for state
-        activity.state = detail.length > 128 ? detail.slice(0, 125) + '...' : detail;
-        activity.details = state.model ? `Model: ${state.model}` : 'Hermes Agent';
-      }
+        // ── Single session — show the interesting stuff ──
+        const detail = state.detail || 'Working...';
+        const toolStr = state.recentTool
+          ? `${state.toolEmoji || '🔧'} ${state.recentTool}`
+          : null;
 
-      // Show elapsed time from session start
-      if (state.startedAt) {
-        activity.startTimestamp = state.startedAt * 1000; // convert to ms
-      }
+        // Bottom line: task description or tool being used
+        if (toolStr && detail !== 'Active session') {
+          activity.state = `${toolStr} — ${detail}`;
+        } else if (toolStr) {
+          activity.state = `${toolStr}`;
+        } else {
+          activity.state = detail;
+        }
 
-      // Show recent tool as small image text
-      if (state.recentTool) {
-        activity.smallImageKey = 'tool-icon';
-        activity.smallImageText = `Using: ${state.recentTool}`;
+        // Truncate to Discord's 128-char limit
+        if (activity.state.length > 128) {
+          activity.state = activity.state.slice(0, 125) + '...';
+        }
+
+        // Top line: agent label
+        activity.details = state.agentLabel || 'Hermes Agent';
+
+        // Large image hover: model name
+        activity.largeImageText = state.model
+          ? `Model: ${state.model}`
+          : 'Hermes Agent';
+
+        // Small image: tool
+        if (state.recentTool) {
+          activity.smallImageText = `${state.toolEmoji || '🔧'} ${state.recentTool}`;
+        } else {
+          delete activity.smallImageKey;
+          delete activity.smallImageText;
+        }
+
+        // Elapsed time
+        if (state.startedAt) {
+          activity.startTimestamp = state.startedAt * 1000;
+        }
       }
     }
 
     return activity;
   }
 
-  /**
-   * Disconnect from Discord
-   */
   async disconnect() {
     this._destroyed = true;
     if (this._reconnectTimer) {
@@ -147,9 +200,7 @@ class DiscordRPC {
     if (this.client) {
       try {
         await this.client.destroy();
-      } catch (e) {
-        // ignore
-      }
+      } catch (e) { /* ignore */ }
       this.client = null;
     }
     this.connected = false;
@@ -168,7 +219,6 @@ class DiscordRPC {
       try {
         await this.connect();
       } catch (e) {
-        // Exponential backoff
         this._currentReconnectDelay = Math.min(
           this._currentReconnectDelay * 2,
           this._maxReconnectDelay
@@ -177,7 +227,6 @@ class DiscordRPC {
       }
     }, this._currentReconnectDelay);
 
-    // Exponential backoff
     this._currentReconnectDelay = Math.min(
       this._currentReconnectDelay * 2,
       this._maxReconnectDelay
