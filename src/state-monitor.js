@@ -254,7 +254,7 @@ class StateMonitor {
                 ORDER BY m2.timestamp DESC LIMIT 1) as last_tool
         FROM sessions s
         LEFT JOIN messages m ON m.session_id = s.id
-        WHERE s.ended_at IS NULL AND s.archived = 0
+        WHERE s.archived = 0
         GROUP BY s.id
         HAVING last_msg_ms > ?
         ORDER BY last_msg_ms DESC
