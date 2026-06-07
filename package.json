@@ -1,0 +1,36 @@
+{
+  "name": "hermes-discord-rpc",
+  "version": "1.0.0",
+  "description": "Discord Rich Presence companion for Hermes Agent — shows your current AI agent activity on Discord",
+  "main": "src/index.js",
+  "bin": {
+    "hermes-discord-rpc": "src/index.js"
+  },
+  "scripts": {
+    "start": "node src/index.js",
+    "dev": "node src/index.js --verbose",
+    "test": "node src/index.js --dry-run"
+  },
+  "keywords": [
+    "hermes",
+    "discord",
+    "rich-presence",
+    "rpc",
+    "ai-agent",
+    "companion"
+  ],
+  "author": "Hermes Community",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/nousresearch/hermes-discord-rpc.git"
+  },
+  "dependencies": {
+    "discord-rpc": "^4.0.1",
+    "sql.js": "^1.12.0",
+    "dotenv": "^16.4.7"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}
