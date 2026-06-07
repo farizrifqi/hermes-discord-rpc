@@ -111,7 +111,7 @@ Edit the `.env` file. A working Client ID is provided below — you can use it a
 ```env
 # Working Client ID (shown in test, usable for testing)
 DISCORD_CLIENT_ID=1512988178229887218
-HERMES_STATE_DB_PATH=%LOCALAPPDATA%\\hermes\\state.db
+HERMES_STATE_DB_PATH=%LOCALAPPDATA%\hermes\state.db
 POLL_INTERVAL=2000
 ```
 
