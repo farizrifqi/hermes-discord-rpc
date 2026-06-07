@@ -91,19 +91,22 @@ async function main() {
   const config = loadConfig(cliArgs);
   const log = createLogger(config.logLevel);
 
-  log.info('━━━ Hermes Discord RPC Companion v1.0.0 ━━━');
-  log.info(`  DB:     ${sanitize(config.dbPath)}`);
-  log.info(`  Poll:   ${config.pollInterval}ms`);
-
   // Initialize state monitor
   const monitor = new StateMonitor(config, log);
 
+  log.info('━━━ Hermes Discord RPC Companion v1.0.0 ━━━');
+  log.info(`  DB:   ${sanitize(config.dbPath)}`);
+  log.info(`  Poll: ${config.pollInterval}ms`);
+  log.info(`  Profiles: ${monitor.getProfileCount()}`);
+  log.info('  Discord: waiting...');
   try {
     await monitor.connect();
   } catch (err) {
     log.error(err.message);
     process.exit(1);
   }
+
+  log.info(`  Profiles: ${monitor.getProfileCount()}`);
 
   // Dry run mode
   if (cliArgs.dryRun) {
@@ -175,11 +178,22 @@ async function main() {
 
   // ── Hook event handler ──
   let lastSig = '';
+  const signatureOf = (state) => [
+    state.status || '-',
+    state.profile || '-',
+    state.agentLabel || '-',
+    state.detail || '-',
+    state.recentTool || '-',
+    state.model || '-',
+    state.dataSource || '-',
+    state.iteration || 0,
+  ].join('|');
+
   monitor.onHookChange(async () => {
     if (shuttingDown) return;
     try {
       const state = await monitor.getPresenceState();
-      const sig = `${state.status}|${state.profile || '-'}|${state.refreshKey || state.lastSeen || ''}`;
+      const sig = signatureOf(state);
       if (sig !== lastSig) {
         lastSig = sig;
         const icon = STATUS_ICON[state.status] || '?';
@@ -197,7 +211,7 @@ async function main() {
   while (!shuttingDown) {
     try {
       const state = await monitor.getPresenceState();
-      const sig = `${state.status}|${state.profile || '-'}|${state.refreshKey || state.lastSeen || ''}`;
+      const sig = signatureOf(state);
 
       if (sig !== lastSig) {
         lastSig = sig;
