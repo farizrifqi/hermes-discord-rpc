@@ -36,7 +36,7 @@ function loadConfig(cliArgs = {}) {
   );
 
   const clientId = cliArgs.clientId || env.DISCORD_CLIENT_ID || '';
-  const pollInterval = parseInt(cliArgs.pollInterval || env.POLL_INTERVAL || '10000', 10);
+  const pollInterval = parseInt(cliArgs.pollInterval || env.POLL_INTERVAL || '2000', 10);
   const apiUrl = cliArgs.apiUrl || env.HERMES_API_URL || null;
   const activityFile = cliArgs.activityFile || env.HERMES_ACTIVITY_FILE || null;
   const logLevel = cliArgs.logLevel || env.LOG_LEVEL || 'info';
@@ -51,7 +51,7 @@ function loadConfig(cliArgs = {}) {
   return {
     clientId,
     dbPath: resolvedDbPath,
-    pollInterval: Math.max(pollInterval, 5000), // minimum 5s safety
+    pollInterval: Math.max(pollInterval, 1000), // minimum 1s — Discord rate-limit is handled separately in discord-rpc.js
     apiUrl,
     activityFile,
     logLevel,
