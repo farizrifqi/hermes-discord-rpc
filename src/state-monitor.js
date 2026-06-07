@@ -5,16 +5,22 @@ const path = require('path');
 const initSqlJs = require('sql.js');
 
 /**
- * StateMonitor polls the Hermes SQLite database for active sessions
- * and recent activity, then builds a presence state object.
+ * StateMonitor reads Hermes agent activity from two sources:
  *
- * Uses sql.js (pure JS SQLite) — no native compilation needed.
+ * 1. PRIMARY: ~/.hermes/hooks/discord-rpc-activity/activity.json
+ *    Written in real-time by the Hermes Gateway Hook on agent:step events.
+ *    This is the live source — always accurate, never stale.
  *
- * Detects truly active sessions by checking recent message timestamps,
- * not just ended_at (which Hermes often leaves NULL for stale sessions).
+ * 2. FALLBACK: SQLite state.db (polled)
+ *    Used when the hook file doesn't exist (hook not installed) or is stale.
  */
 
-// Model name → friendly display name
+const ACTIVITY_FILE = path.join(
+  process.env.USERPROFILE || process.env.HOME || '',
+  '.hermes', 'hooks', 'discord-rpc-activity', 'activity.json'
+);
+
+// Model name → friendly short name
 const MODEL_ALIASES = {
   'openrouter/owl-alpha': 'OWL α',
   'gpt-5.4-mini': 'GPT-5.4 Mini',
@@ -28,39 +34,26 @@ const MODEL_ALIASES = {
   'qwen-2.5-72b': 'Qwen 2.5 72B',
 };
 
-// Source → human label
-const SOURCE_LABELS = {
-  'telegram': '💬 Telegram',
-  'tui': '🖥 TUI',
-  'cli': '⌨️ CLI',
-  'discord': '🎮 Discord',
-  'slack': '💼 Slack',
-  'signal': '📡 Signal',
-  'whatsapp': '📱 WhatsApp',
+// Source → icon label
+const SOURCE_ICONS = {
+  'telegram': '💬',
+  'tui': '🖥',
+  'cli': '⌨️',
+  'discord': '🎮',
+  'slack': '💼',
+  'signal': '📡',
+  'whatsapp': '📱',
 };
 
-// Tool → emoji for visual flair
+// Tool → emoji
 const TOOL_EMOJI = {
-  'web_search': '🔍',
-  'web': '🌐',
-  'terminal': '⚡',
-  'read_file': '📄',
-  'write_file': '✍️',
-  'search_files': '🔎',
-  'browser': '🌍',
-  'browser_console': '🖥',
-  'execute_code': '▶️',
-  'memory': '🧠',
-  'todo': '✅',
-  'session_search': '📜',
-  'fetch': '🌐',
-  'kanban_complete': '🏁',
-  'kanban_block': '🚧',
-  'kanban_create': '📋',
-  'delegation': '🤝',
-  'clarify': '❓',
-  'image_gen': '🎨',
-  'tts': '🔊',
+  'web_search': '🔍', 'web': '🌐', 'terminal': '⚡',
+  'read_file': '📄', 'write_file': '✍️', 'search_files': '🔎',
+  'browser': '🌍', 'browser_console': '🖥', 'execute_code': '▶️',
+  'memory': '🧠', 'todo': '✅', 'session_search': '📜',
+  'fetch': '🌐', 'kanban_complete': '🏁', 'kanban_block': '🚧',
+  'kanban_create': '📋', 'delegation': '🤝', 'clarify': '❓',
+  'image_gen': '🎨', 'tts': '🔊', 'patch': '🔧',
 };
 
 class StateMonitor {
@@ -69,38 +62,76 @@ class StateMonitor {
     this.log = logger;
     this.db = null;
     this._lastState = null;
-    this._staleThreshold = (config.staleThresholdSeconds || 1800) * 1000; // default 30min
+    this._staleThreshold = (config.staleThresholdSeconds || 1800) * 1000;
+    this._usingHook = false;
   }
 
   async connect() {
-    if (!fs.existsSync(this.config.dbPath)) {
-      throw new Error(`Database not found at: ${this.config.dbPath}\nEnsure Hermes Agent has been run at least once.`);
+    // Always try SQLite as fallback
+    if (fs.existsSync(this.config.dbPath)) {
+      try {
+        const SQL = await initSqlJs();
+        const buffer = fs.readFileSync(this.config.dbPath);
+        this.db = new SQL.Database(buffer);
+        this.log.info(`SQLite fallback ready: ${this.config.dbPath}`);
+      } catch (e) {
+        this.log.warn(`SQLite load failed: ${e.message}`);
+      }
     }
 
-    const SQL = await initSqlJs();
-    const buffer = fs.readFileSync(this.config.dbPath);
-    this.db = new SQL.Database(buffer);
-    this.log.info(`Connected to Hermes state DB: ${this.config.dbPath}`);
+    // Check if hook file exists
+    if (fs.existsSync(ACTIVITY_FILE)) {
+      this._usingHook = true;
+      this.log.info(`Hook activity file detected: ${ACTIVITY_FILE}`);
+    } else {
+      this.log.info('No hook activity file — using SQLite polling only');
+      this.log.info('Install the gateway hook for real-time updates:');
+      this.log.info('  ~/.hermes/hooks/discord-rpc-activity/');
+    }
   }
 
   disconnect() {
-    if (this.db) {
-      this.db.close();
-      this.db = null;
+    if (this.db) { this.db.close(); this.db = null; }
+  }
+
+  /**
+   * Read activity from the hook file (real-time, primary source).
+   * Returns null if hook file is missing or stale.
+   */
+  _readHookActivity() {
+    try {
+      if (!fs.existsSync(ACTIVITY_FILE)) return null;
+
+      const raw = fs.readFileSync(ACTIVITY_FILE, 'utf-8');
+      const data = JSON.parse(raw);
+      const now = Date.now();
+      const age = now - (data.timestamp || 0) * 1000;
+
+      // If hook data is older than stale threshold, it's stale
+      if (age > this._staleThreshold) {
+        this._usingHook = false;
+        return null;
+      }
+
+      this._usingHook = true;
+      return data;
+    } catch (e) {
+      this._usingHook = false;
+      return null;
     }
   }
 
   /**
-   * Get sessions with recent activity (truly active, not just ended_at IS NULL)
+   * Get truly active sessions from SQLite (fallback).
    */
-  getTrulyActiveSessions(now = Date.now()) {
-    if (!this.db) throw new Error('Not connected. Call connect() first.');
+  _getTrulyActiveSessions(now = Date.now()) {
+    if (!this.db) return [];
 
     const stmt = this.db.prepare(`
       SELECT s.id, s.source, s.title, s.started_at, s.model,
              MAX(m.timestamp) * 1000 as last_msg_ms,
-             (SELECT m2.tool_name FROM messages m2 
-              WHERE m2.session_id = s.id AND m2.tool_name IS NOT NULL AND m2.tool_name != '' 
+             (SELECT m2.tool_name FROM messages m2
+              WHERE m2.session_id = s.id AND m2.tool_name IS NOT NULL AND m2.tool_name != ''
               ORDER BY m2.timestamp DESC LIMIT 1) as last_tool
       FROM sessions s
       LEFT JOIN messages m ON m.session_id = s.id
@@ -111,101 +142,39 @@ class StateMonitor {
     `);
     stmt.bind([now - this._staleThreshold]);
     const rows = [];
-    while (stmt.step()) {
-      rows.push(stmt.getAsObject());
-    }
+    while (stmt.step()) rows.push(stmt.getAsObject());
     stmt.free();
     return rows;
   }
 
-  /**
-   * Get the most recent user message content for a session
-   */
-  getLastUserMessage(sessionId) {
-    if (!this.db) return null;
-
-    const stmt = this.db.prepare(`
-      SELECT content FROM messages
-      WHERE session_id = ? AND role = 'user'
-      ORDER BY timestamp DESC LIMIT 1
-    `);
-    stmt.bind([sessionId]);
-    let result = null;
-    if (stmt.step()) {
-      const row = stmt.getAsObject();
-      result = row.content;
-    }
-    stmt.free();
-    return result;
-  }
-
-  /**
-   * Get the last N tool calls for a session (chronological)
-   */
-  getRecentTools(sessionId, limit = 3) {
-    if (!this.db) return [];
-
-    const stmt = this.db.prepare(`
-      SELECT tool_name, timestamp FROM messages
-      WHERE session_id = ? AND tool_name IS NOT NULL AND tool_name != ''
-      ORDER BY timestamp DESC LIMIT ?
-    `);
-    stmt.bind([sessionId, limit]);
-    const rows = [];
-    while (stmt.step()) {
-      rows.push(stmt.getAsObject());
-    }
-    stmt.free();
-    return rows.reverse(); // chronological order
-  }
-
-  /**
-   * Get the most recent message (any role) for a session
-   */
-  getLastMessage(sessionId) {
-    if (!this.db) return null;
-
-    const stmt = this.db.prepare(`
-      SELECT role, content, tool_name, timestamp FROM messages
-      WHERE session_id = ?
-      ORDER BY timestamp DESC LIMIT 1
-    `);
-    stmt.bind([sessionId]);
-    let result = null;
-    if (stmt.step()) {
-      result = stmt.getAsObject();
-    }
-    stmt.free();
-    return result;
-  }
-
-  /**
-   * Derive a friendly "agent" label from the session source + model
-   */
-  deriveAgentLabel(source, model) {
-    const modelShort = MODEL_ALIASES[model] || (model ? model.split('/').pop().split(':')[0] : null);
-    const sourceLabel = SOURCE_LABELS[source] || source;
-
-    if (modelShort) {
-      return `${sourceLabel} · ${modelShort}`;
-    }
-    return sourceLabel;
-  }
-
-  /**
-   * Build the current presence state.
-   */
   async getPresenceState() {
-    const now = Date.now();
-    const active = this.getTrulyActiveSessions(now);
+    // ── PRIMARY: Hook activity file ──
+    const hook = this._readHookActivity();
+    if (hook && hook.status === 'active') {
+      const sourceIcon = SOURCE_ICONS[hook.platform] || '💻';
+      const toolEmoji = hook.tool ? (TOOL_EMOJI[hook.tool] || '🔧') : null;
 
-    // ── Idle ──
-    if (active.length === 0) {
+      const state = {
+        status: 'active',
+        detail: hook.title || 'Working...',
+        agentLabel: `${sourceIcon} ${hook.platform}`,
+        model: MODEL_ALIASES[hook.model] || hook.model || null,
+        startedAt: hook.timestamp ? Math.floor(hook.timestamp) : null,
+        activeCount: 1,
+        recentTool: hook.tool || null,
+        toolEmoji,
+        source: hook.platform,
+        iteration: hook.iteration || 0,
+        dataSource: 'hook',
+      };
+      this._lastState = state;
+      return state;
+    }
+
+    if (hook && hook.status === 'idle') {
       const state = {
         status: 'idle',
-        statusLabel: 'Idle',
         detail: 'Waiting for tasks',
-        details: 'Waiting for tasks',
         agentLabel: null,
         model: null,
         startedAt: null,
@@ -213,98 +182,57 @@ class StateMonitor {
         recentTool: null,
         toolEmoji: null,
         source: null,
-        sessionInfo: null,
+        iteration: 0,
+        dataSource: 'hook',
       };
       this._lastState = state;
       return state;
     }
 
-    // ── Single active session ──
-    if (active.length === 1) {
-      const s = active[0];
-      const agentLabel = this.deriveAgentLabel(s.source, s.model);
-      const toolEmoji = s.last_tool ? (TOOL_EMOJI[s.last_tool] || '🔧') : null;
+    // ── FALLBACK: SQLite polling ──
+    const active = this._getTrulyActiveSessions();
 
-      // Build an informative "what am I doing" string
-      let detail = s.title;
-      if (!detail) {
-        // Try last user message
-        const lastUser = this.getLastUserMessage(s.id);
-        if (lastUser) {
-          detail = lastUser.length > 80 ? lastUser.slice(0, 77) + '...' : lastUser;
-        } else {
-          // Try last assistant message (truncated)
-          const lastMsg = this.getLastMessage(s.id);
-          if (lastMsg && lastMsg.content) {
-            detail = lastMsg.content.length > 80 ? lastMsg.content.slice(0, 77) + '...' : lastMsg.content;
-          } else {
-            detail = 'Active session';
-          }
-        }
-      }
-
-      const ageMin = s.last_msg_ms ? Math.round((now - s.last_msg_ms) / 60000) : null;
-
+    if (active.length === 0) {
       const state = {
-        status: 'active',
-        statusLabel: 'Active',
-        detail: detail,
-        details: detail,
-        agentLabel,
-        model: MODEL_ALIASES[s.model] || s.model || null,
-        startedAt: s.started_at ? Math.floor(s.started_at) : null,
-        activeCount: 1,
-        recentTool: s.last_tool || null,
-        toolEmoji,
-        source: s.source,
-        sessionInfo: {
-          ageMinutes: ageMin,
-          lastTool: s.last_tool,
-        },
+        status: 'idle',
+        detail: 'Waiting for tasks',
+        agentLabel: null,
+        model: null,
+        startedAt: null,
+        activeCount: 0,
+        recentTool: null,
+        toolEmoji: null,
+        source: null,
+        iteration: 0,
+        dataSource: 'sqlite',
       };
       this._lastState = state;
       return state;
     }
 
-    // ── Multiple active sessions ──
-    // Show the most interesting one
     const primary = active[0];
-    const agentLabel = this.deriveAgentLabel(primary.source, primary.model);
+    const sourceIcon = SOURCE_ICONS[primary.source] || '💻';
     const toolEmoji = primary.last_tool ? (TOOL_EMOJI[primary.last_tool] || '🔧') : null;
-
-    // Askewt sessions by source
-    const sourceCount = {};
-    for (const s of active) {
-      sourceCount[s.source] = (sourceCount[s.source] || 0) + 1;
-    }
-    const sourceSummary = Object.entries(sourceCount)
-      .map(([src, cnt]) => `${SOURCE_LABELS[src] || src}: ${cnt}`)
-      .join(' · ');
 
     const state = {
       status: 'active',
-      statusLabel: 'Multi-tasking',
-      detail: `${active.length} active sessions`,
-      details: sourceSummary,
-      agentLabel,
+      detail: primary.title || `Active (${primary.source})`,
+      agentLabel: `${sourceIcon} ${primary.source}`,
       model: MODEL_ALIASES[primary.model] || primary.model || null,
       startedAt: primary.started_at ? Math.floor(primary.started_at) : null,
       activeCount: active.length,
       recentTool: primary.last_tool || null,
       toolEmoji,
       source: primary.source,
-      sessionInfo: {
-        sourceBreakdown: sourceCount,
-        primaryAgeMin: primary.last_msg_ms ? Math.round((now - primary.last_msg_ms) / 60000) : null,
-      },
+      iteration: 0,
+      dataSource: 'sqlite',
     };
     this._lastState = state;
     return state;
   }
 
-  getLastState() {
-    return this._lastState;
-  }
+  getLastState() { return this._lastState; }
+  isUsingHook() { return this._usingHook; }
 }
 
-module.exports = { StateMonitor, MODEL_ALIASES, TOOL_EMOJI };
+module.exports = { StateMonitor, ACTIVITY_FILE, MODEL_ALIASES, TOOL_EMOJI, SOURCE_ICONS };
