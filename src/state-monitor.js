@@ -31,6 +31,13 @@ const HERMES_BASE = path.join(
   'hermes'
 );
 
+// Simple path sanitizer for logs (scrubs username from paths)
+function _sanitize(p) {
+  if (!p) return p;
+  const home = process.env.USERPROFILE || process.env.HOME || '';
+  return p.replace(new RegExp(home.replace(/\\/g, '\\\\').replace(/:/g, '\\:'), 'g'), '$HOME');
+}
+
 // Model name → friendly short name
 const MODEL_ALIASES = {
   'openrouter/owl-alpha': 'OWL α',
@@ -90,15 +97,8 @@ class StateMonitor {
     // ---- Hook file watcher ----
     if (fs.existsSync(ACTIVITY_FILE)) {
       this._usingHook = true;
-      this.log.info(`Hook activity file detected: ${ACTIVITY_FILE}`);
       const initial = this._readHookActivity();
       if (initial) this._cachedHookData = initial;
-    } else if (fs.existsSync(ACTIVITY_DIR)) {
-      this.log.info(`Hook directory exists but no activity file yet — watching for creation`);
-    } else {
-      this.log.info('No hook activity file — using SQLite polling only');
-      this.log.info('Install the gateway hook for real-time updates:');
-      this.log.info('  ~/.hermes/hooks/discord-rpc-activity/');
     }
     this._startHookWatcher();
   }
@@ -114,25 +114,35 @@ class StateMonitor {
     const SQL = await initSqlJs();
     const dbPaths = this._discoverDatabasePaths();
 
+    const loaded = [];
+    const skipped = [];
+
     for (const { profile, dbPath } of dbPaths) {
       if (this._excluded.has(profile)) {
-        this.log.info(`  Skipping excluded profile: ${profile}`);
+        skipped.push(profile);
         continue;
       }
       try {
         const buffer = fs.readFileSync(dbPath);
         const db = new SQL.Database(buffer);
         this._dbs[profile] = db;
-        this.log.info(`  Loaded: ${profile} → ${dbPath}`);
+        loaded.push(profile);
       } catch (e) {
         this.log.warn(`  Failed to load ${profile}: ${e.message}`);
       }
     }
 
-    const loaded = Object.keys(this._dbs).length;
-    this.log.info(`Databases loaded: ${loaded} (${Object.keys(this._dbs).join(', ')})`);
-    if (this._excluded.size > 0) {
-      this.log.info(`Excluded profiles: ${[...this._excluded].join(', ')}`);
+    const summary = `Profiles: ${loaded.length}`;
+    if (loaded.length > 0) {
+      const names = loaded.length <= 5
+        ? loaded.join(', ')
+        : `${loaded.slice(0, 3).join(', ')}, ... +${loaded.length - 3} more`;
+      this.log.info(`  ${summary} (${names})`);
+    } else {
+      this.log.info(`  ${summary}`);
+    }
+    if (skipped.length > 0) {
+      this.log.info(`  Excluded: ${skipped.join(', ')}`);
     }
   }
 
@@ -204,7 +214,7 @@ class StateMonitor {
           }
         }, 100);
       });
-      this.log.info(`File watcher active on: ${watchTarget}`);
+      this.log.info(`  Hook:   watching ${_sanitize(watchTarget)}`);
     } catch (e) {
       this.log.warn(`Could not start file watcher: ${e.message}`);
     }
@@ -317,6 +327,7 @@ class StateMonitor {
         iteration: hook.iteration || 0,
         dataSource: 'hook',
         profile: null,
+        lastSeen: now,
       };
       this._lastState = state;
       return state;
@@ -333,6 +344,7 @@ class StateMonitor {
         agentLabel: null, model: null, startedAt: null,
         activeCount: 0, recentTool: null, toolEmoji: null,
         source: null, iteration: 0, dataSource: 'sqlite', profile: null,
+        lastSeen: now,
       };
       return this._lastState;
     }
@@ -353,6 +365,7 @@ class StateMonitor {
       iteration: 0,
       dataSource: 'sqlite',
       profile: primary._profile,
+      lastSeen: now,
     };
     this._lastState = state;
     return state;
@@ -360,6 +373,7 @@ class StateMonitor {
 
   getLastState() { return this._lastState; }
   isUsingHook() { return this._usingHook; }
+  getProfileCount() { return Object.keys(this._dbs).length; }
 }
 
 module.exports = { StateMonitor, ACTIVITY_FILE, MODEL_ALIASES, TOOL_EMOJI, SOURCE_ICONS };

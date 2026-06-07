@@ -5,12 +5,23 @@ const { loadConfig } = require('./config');
 const { StateMonitor } = require('./state-monitor');
 const { DiscordRPC } = require('./discord-rpc');
 
+// ── Log sanitizer ─────────────────────────────────────────────
+// Scrubs user-specific info from logs for safe screenshots/code images.
+const USER_HOME = process.env.USERPROFILE || process.env.HOME || '';
+function sanitize(str) {
+  if (!str) return str;
+  return str
+    .replace(new RegExp(USER_HOME.replace(/\\/g, '\\\\').replace(/:/g, '\\:'), 'g'), '$HOME')
+    .replace(/%LOCALAPPDATA%/g, '%APPDATA%')
+    .replace(/C:\\Users\\[^\\]+\\/gi, 'C:\\Users\\User\\');
+}
+
 // ── Simple logger ──────────────────────────────────────────────
 const LOG_LEVELS = { debug: 0, info: 1, warn: 2, error: 3 };
 
 function createLogger(level = 'info') {
   const minLevel = LOG_LEVELS[level] ?? 1;
-  const fmt = (lvl, msg) => `[${new Date().toISOString()}] [${lvl.toUpperCase()}] ${msg}`;
+  const fmt = (lvl, msg) => `[${lvl.toUpperCase()}] ${msg}`;
   return {
     debug: (msg) => { if (minLevel <= 0) console.log(fmt('debug', msg)); },
     info:  (msg) => { if (minLevel <= 1) console.log(fmt('info',  msg)); },
@@ -32,16 +43,8 @@ function parseArgs(argv) {
       args.help = true;
     } else if (arg === '--env' && argv[i + 1]) {
       args.env = argv[++i];
-    } else if (arg === '--db-path' && argv[i + 1]) {
-      args.dbPath = argv[++i];
-    } else if (arg === '--client-id' && argv[i + 1]) {
-      args.clientId = argv[++i];
     } else if (arg === '--poll-interval' && argv[i + 1]) {
       args.pollInterval = argv[++i];
-    } else if (arg === '--api-url' && argv[i + 1]) {
-      args.apiUrl = argv[++i];
-    } else if (arg === '--activity-file' && argv[i + 1]) {
-      args.activityFile = argv[++i];
     }
   }
   return args;
@@ -59,9 +62,7 @@ Options:
   --client-id <id>       Discord Application Client ID
   --db-path <path>       Path to Hermes state.db
   --env <path>           Path to .env file (default: .env in project root)
-  --poll-interval <ms>   Polling interval in ms (default: 10000, min: 5000)
-  --api-url <url>        Hermes API server URL (future-proofing)
-  --activity-file <path> Path to activity.json (future-proofing)
+  --poll-interval <ms>   Polling interval in ms (default: 2000)
   --verbose, -v          Enable debug logging
   --dry-run, -n          Test mode: print presence state without Discord
   --help, -h             Show this help
@@ -69,10 +70,15 @@ Options:
 Environment variables (or .env file):
   DISCORD_CLIENT_ID       Discord Application Client ID
   HERMES_STATE_DB_PATH    Path to Hermes state.db
-  POLL_INTERVAL           Polling interval in ms
+  POLL_INTERVAL           Polling interval in ms (default: 2000)
+  EXCLUDED_PROFILES       Comma-separated profiles to skip
   LOG_LEVEL               debug | info | warn | error
 `);
 }
+
+// ── Icon helpers ───────────────────────────────────────────────
+const STATUS_ICON = { active: '◉', idle: '○', error: '✕' };
+const SRC_ICON   = { hook: '⚡', sqlite: '🔄' };
 
 // ── Main loop ─────────────────────────────────────────────────
 async function main() {
@@ -86,15 +92,9 @@ async function main() {
   const config = loadConfig(cliArgs);
   const log = createLogger(config.logLevel);
 
-  log.info('═══════════════════════════════════════════');
-  log.info('  Hermes Discord RPC Companion v1.0.0');
-  log.info('═══════════════════════════════════════════');
-  log.info(`  DB Path:      ${config.dbPath}`);
-  log.info(`  Poll Interval: ${config.pollInterval}ms`);
-  log.info(`  Client ID:    ${config.clientId ? config.clientId.slice(0, 8) + '...' : '(not set)'}`);
-  log.info(`  Dry Run:      ${cliArgs.dryRun ? 'YES' : 'NO'}`);
-  log.info(`  Refresh Log:  ${config.refreshLog ? 'ON' : 'OFF'}`);
-  log.info('═══════════════════════════════════════════');
+  log.info('━━━ Hermes Discord RPC Companion v1.0.0 ━━━');
+  log.info(`  DB:     ${sanitize(config.dbPath)}`);
+  log.info(`  Poll:   ${config.pollInterval}ms`);
 
   // Initialize state monitor
   const monitor = new StateMonitor(config, log);
@@ -106,29 +106,26 @@ async function main() {
     process.exit(1);
   }
 
-  // Dry run mode: just print state and exit
+  // Dry run mode
   if (cliArgs.dryRun) {
-    log.info('Dry run mode — checking state...');
+    log.info('── dry run ──');
     try {
       const state = await monitor.getPresenceState();
-      log.info(`Status:     ${state.status}`);
-      log.info(`Detail:     ${state.detail}`);
-      log.info(`Model:      ${state.model || 'N/A'}`);
-      log.info(`Tasks:      ${state.taskCount}`);
-      log.info(`Session:    ${state.sessionId || 'N/A'}`);
-      log.info(`Started At: ${state.startedAt ? new Date(state.startedAt * 1000).toISOString() : 'N/A'}`);
-      log.info(`Recent Tool:${state.recentTool || 'N/A'}`);
+      log.info(`  Status:   ${sanitize(state.status)}`);
+      log.info(`  Agent:    ${sanitize(state.agentLabel || '-')}`);
+      log.info(`  Task:     ${sanitize(state.detail || '-')}`);
+      log.info(`  Model:    ${sanitize(state.model || 'N/A')}`);
+      log.info(`  Tool:     ${sanitize(state.recentTool || 'N/A')}`);
+      log.info(`  Source:   ${sanitize(state.profile || '-')} (${sanitize(state.dataSource || '-')})`);
 
-      // Also show what Discord would see
       const rpc = new DiscordRPC(config, log);
       const activity = rpc._buildActivity(state);
       log.info('');
-      log.info('Discord activity that would be set:');
+      log.info('Discord activity:');
       log.info(JSON.stringify(activity, null, 2));
     } catch (err) {
       log.error(`Error: ${err.message}`);
     }
-    // Use process.exit to avoid sql.js cleanup assertion on Windows
     process.exit(0);
   }
 
@@ -142,7 +139,6 @@ async function main() {
     shuttingDown = true;
     log.info(`Received ${signal}, shutting down...`);
 
-    // Clear presence before disconnecting
     try {
       if (rpc.connected) {
         await rpc.client.setActivity({
@@ -164,7 +160,6 @@ async function main() {
   process.on('SIGTERM', () => shutdown('SIGTERM'));
   process.on('SIGHUP', () => shutdown('SIGHUP'));
 
-  // Handle Windows signals
   if (process.platform === 'win32') {
     const readline = require('readline');
     const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
@@ -176,34 +171,30 @@ async function main() {
   try {
     await rpc.connect();
   } catch (err) {
-    log.error(err.message);
-    // Don't exit — the reconnect handler will retry
+    // reconnect handler will retry
   }
 
-  // ── Event-driven hook updates ──
-  // When the hook file changes, update presence immediately (no poll delay).
-  // This is the primary real-time path.
-  let hookStateStr = '';
+  // ── Hook event handler ──
+  let lastStateStr = '';
   monitor.onHookChange(async (hookData) => {
     if (shuttingDown) return;
     try {
       const state = await monitor.getPresenceState();
       const stateStr = JSON.stringify(state);
-      if (stateStr !== hookStateStr) {
-        hookStateStr = stateStr;
-        log.info(`[hook] Status=${state.status} profile=${state.profile || '-'} detail=${(state.detail || '').slice(0, 60)}`);
+      if (stateStr !== lastStateStr) {
+        lastStateStr = stateStr;
+        const icon = STATUS_ICON[state.status] || '?';
+        const srcIcon = SRC_ICON[state.dataSource] || '';
+        log.info(`${srcIcon} ${icon} ${state.agentLabel || 'Idle'}${state.model ? `  [${state.model}]` : ''}`);
         await rpc.updatePresence(state);
       }
     } catch (err) {
-      log.error(`[hook] Update error: ${err.message}`);
+      log.error(`Hook error: ${err.message}`);
     }
   });
 
-  // ── Polling loop (always runs) ──
-  // Continuously polls all profile databases to detect state changes.
-  // Runs alongside the hook watcher — hook is instant, polling is the safety net.
-  log.info('Starting presence polling loop...');
-  let lastStateStr = '';
+  // ── Polling loop ──
+  log.info('── watching ──');
 
   while (!shuttingDown) {
     try {
@@ -211,15 +202,13 @@ async function main() {
       const stateStr = JSON.stringify(state);
 
       if (stateStr !== lastStateStr) {
-        log.info(`[poll] Status=${state.status} profile=${state.profile || '-'} src=${state.dataSource} detail=${(state.detail || '').slice(0, 60)}`);
         lastStateStr = stateStr;
-        hookStateStr = stateStr; // keep hook tracker in sync
+        const icon = STATUS_ICON[state.status] || '?';
+        const srcIcon = SRC_ICON[state.dataSource] || '';
+        log.info(`${srcIcon} ${icon} ${state.agentLabel || 'Idle'}${state.model ? `  [${state.model}]` : ''}`);
         await rpc.updatePresence(state);
       } else {
-        log.debug('State unchanged');
-        if (config.refreshLog) {
-          log.info(`[poll] ♻ refreshing...`);
-        }
+        log.debug('no change');
       }
     } catch (err) {
       log.error(`Polling error: ${err.message}`);
