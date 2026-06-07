@@ -179,22 +179,46 @@ async function main() {
     // Don't exit — the reconnect handler will retry
   }
 
-  // Main polling loop
-  log.info('Starting presence polling loop...');
+  // ── Event-driven hook updates ──
+  // When the hook file changes, update presence immediately (no poll delay).
+  // This is the primary real-time path.
+  let hookStateStr = '';
+  monitor.onHookChange(async (hookData) => {
+    if (shuttingDown) return;
+    try {
+      const state = await monitor.getPresenceState();
+      const stateStr = JSON.stringify(state);
+      if (stateStr !== hookStateStr) {
+        hookStateStr = stateStr;
+        log.info(`[hook] State changed: status=${state.status}, detail=${(state.detail || '').slice(0, 50)}`);
+        await rpc.updatePresence(state);
+      }
+    } catch (err) {
+      log.error(`[hook] Update error: ${err.message}`);
+    }
+  });
+
+  // ── Polling loop (fallback) ──
+  // Only updates presence when the hook file is not being used.
+  // This handles the SQLite fallback path and catches any missed hook events.
+  log.info('Starting presence polling loop (fallback mode)...');
   let lastStateStr = '';
 
   while (!shuttingDown) {
     try {
-      const state = await monitor.getPresenceState();
-      const stateStr = JSON.stringify(state);
+      // Only poll if not using hook (hook events are handled above)
+      if (!monitor.isUsingHook()) {
+        const state = await monitor.getPresenceState();
+        const stateStr = JSON.stringify(state);
 
-      // Only update if state changed
-      if (stateStr !== lastStateStr) {
-        log.info(`State changed: status=${state.status}, tasks=${state.taskCount}, detail=${state.detail?.slice(0, 50)}`);
-        lastStateStr = stateStr;
-        await rpc.updatePresence(state);
-      } else {
-        log.debug('State unchanged, skipping update');
+        // Only update if state changed
+        if (stateStr !== lastStateStr) {
+          log.info(`[poll] State changed: status=${state.status}, detail=${(state.detail || '').slice(0, 50)}`);
+          lastStateStr = stateStr;
+          await rpc.updatePresence(state);
+        } else {
+          log.debug('State unchanged, skipping update');
+        }
       }
     } catch (err) {
       log.error(`Polling error: ${err.message}`);

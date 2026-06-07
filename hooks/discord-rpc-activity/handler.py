@@ -37,12 +37,15 @@ async def handle(event_type: str, context: dict):
     # Common fields available in most events
     platform = context.get("platform", "")
     session_id = context.get("session_id", "")
+    # Profile name tells us which agent is active (default, coding-agent, xresearch, etc.)
+    profile = context.get("profile", "") or context.get("agent", "") or platform
 
     if event_type == "session:start":
         data = {
             "status": "active",
             "event": event_type,
             "platform": platform,
+            "profile": profile,
             "session_id": session_id,
             "title": "Starting session...",
             "tool": None,
@@ -55,6 +58,7 @@ async def handle(event_type: str, context: dict):
             "status": "active",
             "event": event_type,
             "platform": platform,
+            "profile": profile,
             "session_id": session_id,
             "title": _shorten(context.get("message", ""), 80),
             "tool": None,
@@ -68,6 +72,7 @@ async def handle(event_type: str, context: dict):
             "status": "active",
             "event": event_type,
             "platform": platform,
+            "profile": profile,
             "session_id": session_id,
             "title": _shorten(context.get("message", ""), 80),
             "tool": tool_names[-1] if tool_names else None,
@@ -81,6 +86,7 @@ async def handle(event_type: str, context: dict):
             "status": "idle",
             "event": event_type,
             "platform": platform,
+            "profile": profile,
             "session_id": session_id,
             "title": None,
             "tool": None,
@@ -93,6 +99,7 @@ async def handle(event_type: str, context: dict):
             "status": "idle",
             "event": event_type,
             "platform": platform,
+            "profile": profile,
             "session_id": session_id,
             "title": None,
             "tool": None,
