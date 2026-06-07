@@ -7,6 +7,11 @@ Show your [Hermes Agent](https://hermes-agent.nousresearch.com/) activity as **D
 ![License](https://img.shields.io/badge/License-MIT-blue)
 ![Status](https://img.shields.io/badge/Status-✅%20TESTED%20%26%20WORKING-green)
 
+## Preview
+
+![Discord RPC Preview](https://i.imgur.com/gzWXAIK.png)
+![Console Preview](https://i.imgur.com/tIQqvQQ.jpeg)
+
 > **⚠️ Proof-of-concept build.** The code was generated and dry-run verified (SQLite reads, payload construction). Expect bugs. Use at your own risk. This is a temporary companion while waiting for the official [`hermes-companion`](https://github.com/NousResearch/hermes-agent/issues/28893) plugin.
 
 ## Data Sources
@@ -86,7 +91,10 @@ This will:
 - Create `.env` from the template
 - Run a dry-run test
 
-### 3. Create a Discord Application
+### 3. Create or choose a Discord Application
+
+This repository ships with a working Client ID (shown in the next step) that you can use immediately for testing.  
+If you prefer to use your own application:
 
 1. Go to [https://discord.com/developers/applications](https://discord.com/developers/applications)
 2. Click **"New Application"**
@@ -94,14 +102,17 @@ This will:
 4. Copy the **Application ID** (this is your Client ID)
 5. *(Optional)* Go to **Rich Presence → Art Assets** and upload a logo image named `hermes-logo`
 
+Paste your Client ID into `.env` as `DISCORD_CLIENT_ID` in the next step.
+
 ### 4. Configure your `.env`
 
-Edit the `.env` file:
+Edit the `.env` file. A working Client ID is provided below — you can use it as-is or replace with your own:
 
 ```env
-DISCORD_CLIENT_ID=123456789012345678
+# Working Client ID (shown in test, usable for testing)
+DISCORD_CLIENT_ID=1512988178229887218
 HERMES_STATE_DB_PATH=%LOCALAPPDATA%\hermes\state.db
-POLL_INTERVAL=15000
+POLL_INTERVAL=2000
 ```
 
 ### 5. Start the companion
@@ -118,7 +129,7 @@ Your Discord profile should now show Hermes Agent activity!
 |---|---|---|
 | `DISCORD_CLIENT_ID` | Discord Application Client ID | *(required)* |
 | `HERMES_STATE_DB_PATH` | Path to Hermes `state.db` | `%LOCALAPPDATA%\hermes\state.db` |
-| `POLL_INTERVAL` | How often to check for changes (ms) | `15000` |
+| `POLL_INTERVAL` | How often to check for changes (ms) | `2000` |
 | `LOG_LEVEL` | Logging verbosity: `debug`, `info`, `warn`, `error` | `info` |
 | `STALE_THRESHOLD_SECONDS` | Stale session threshold in seconds | `1800` |
 
@@ -204,8 +215,13 @@ src/
 ├── index.js          # Main entry, CLI parsing, polling loop
 ├── config.js         # Config loading from .env and CLI args
 ├── state-monitor.js  # SQLite polling, presence state builder
-└── discord-rpc.js    # Discord IPC connection & presence updates
-```
+## How it detects multi-agent
+
+The companion scans ALL Hermes profile databases to find the most recently active agent:
+- Default: `%LOCALAPPDATA%\hermes\state.db`
+- Profiles: `%LOCALAPPDATA%\hermes\profiles\*\state.db`
+- Shows the profile name in presence: `🖥 coding-agent`, `🖥 xresearch`, etc.
+- Use `EXCLUDED_PROFILES=routing-agent,hermes-admin` to skip noisy profiles
 
 ## License
 
