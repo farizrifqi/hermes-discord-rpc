@@ -157,7 +157,6 @@ class StateMonitor {
       const state = {
         status: 'active',
         detail: hook.title || 'Working...',
-        details: hook.title || 'Working...',
         agentLabel: `${sourceIcon} ${hook.platform}`,
         model: MODEL_ALIASES[hook.model] || hook.model || null,
         startedAt: hook.timestamp ? Math.floor(hook.timestamp) : null,
@@ -176,7 +175,6 @@ class StateMonitor {
       const state = {
         status: 'idle',
         detail: 'Waiting for tasks',
-        details: 'Waiting for tasks',
         agentLabel: null,
         model: null,
         startedAt: null,
@@ -198,7 +196,6 @@ class StateMonitor {
       const state = {
         status: 'idle',
         detail: 'Waiting for tasks',
-        details: 'Waiting for tasks',
         agentLabel: null,
         model: null,
         startedAt: null,
@@ -220,7 +217,6 @@ class StateMonitor {
     const state = {
       status: 'active',
       detail: primary.title || `Active (${primary.source})`,
-      details: primary.title || `Active (${primary.source})`,
       agentLabel: `${sourceIcon} ${primary.source}`,
       model: MODEL_ALIASES[primary.model] || primary.model || null,
       startedAt: primary.started_at ? Math.floor(primary.started_at) : null,

@@ -12,11 +12,12 @@ Show your [Hermes Agent](https://hermes-agent.nousresearch.com/) activity as **D
 ## Data Sources
 
 ### Primary: Gateway Hook (real-time)
-When the Hermes Gateway Hook is installed, the companion receives live `agent:step` events —
+When the Hermes Gateway Hook is installed, the companion receives live agent and session
+events (`agent:start`, `agent:step`, `agent:end`, `session:start`, `session:end`) —
 updates appear instantly while the agent is working, with tool names and iteration counts.
 
 ### Fallback: SQLite polling
-Without the hook, the companion polls `state.db` every 10 seconds.
+Without the hook, the companion polls `state.db` every 15 seconds.
 Sessions older than 30 minutes are ignored (stale session filtering).
 
 ## Installing the Gateway Hook (recommended)
@@ -45,17 +46,17 @@ events:
 **`~/.hermes/hooks/discord-rpc-activity/handler.py`:**
 See [`hooks/discord-rpc-activity/handler.py`](hooks/discord-rpc-activity/handler.py) in this repo.
 
-After creating the hook files, restart your Hermes gateway. The hook auto-creates
-`~/.hermes/hooks/discord-rpc-activity/activity.json` on the next agent:step event.
-The companion auto-detects this file and switches to real-time mode (you'll see "live"
-in the presence text).
+After creating the hook files, restart your Hermes gateway. The hook creates
+`~/.hermes/hooks/discord-rpc-activity/activity.json` on any of the five subscribed
+events. The companion auto-detects this file and switches to real-time mode (you'll
+see "live" in the presence text).
 
 - **Real-time presence** — Shows active Hermes sessions on your Discord profile
 - **Multi-task awareness** — Displays "N tasks in progress" when multiple sessions are active
 - **Model info** — Shows which AI model is being used (e.g., `gpt-5.4-mini`, `grok-4.3`)
 - **Elapsed time** — Session start time shown in Discord's built-in timer
 - **Tool tracking** — Shows the most recently used tool
-- **Zero config** — Reads directly from Hermes's existing SQLite database
+- **Minimal config** — Zero config for basic use; install the gateway hook for real-time updates
 - **Auto-reconnect** — Handles Discord restarts and network issues gracefully
 - **Rate-limit safe** — Respects Discord's 15-second presence update limit
 
@@ -99,8 +100,8 @@ Edit the `.env` file:
 
 ```env
 DISCORD_CLIENT_ID=123456789012345678
-HERMES_STATE_DB_PATH=C:\Users\YourName\AppData\Local\hermes\state.db
-POLL_INTERVAL=10000
+HERMES_STATE_DB_PATH=%LOCALAPPDATA%\hermes\state.db
+POLL_INTERVAL=15000
 ```
 
 ### 5. Start the companion
@@ -117,9 +118,9 @@ Your Discord profile should now show Hermes Agent activity!
 |---|---|---|
 | `DISCORD_CLIENT_ID` | Discord Application Client ID | *(required)* |
 | `HERMES_STATE_DB_PATH` | Path to Hermes `state.db` | `%LOCALAPPDATA%\hermes\state.db` |
-| `POLL_INTERVAL` | How often to check for changes (ms) | `10000` |
+| `POLL_INTERVAL` | How often to check for changes (ms) | `15000` |
 | `LOG_LEVEL` | Logging verbosity: `debug`, `info`, `warn`, `error` | `info` |
-| `HERMES_API_URL` | Future: Hermes API server URL | *(disabled)* |
+| `STALE_THRESHOLD_SECONDS` | Stale session threshold in seconds | `1800` |
 
 ## CLI Options
 
@@ -158,15 +159,20 @@ node src/index.js [options]
 
 ## How It Works
 
-The companion reads from Hermes Agent's existing SQLite database (`state.db`):
+The companion reads Hermes activity from two sources:
 
-- **Active sessions**: `SELECT * FROM sessions WHERE ended_at IS NULL`
-- **Recent tools**: `SELECT tool_name FROM messages WHERE session_id = ? ORDER BY timestamp DESC LIMIT 1`
+1. **Primary: Gateway Hook** — If the `discord-rpc-activity` hook is installed at
+   `~/.hermes/hooks/discord-rpc-activity/`, Hermes writes real-time activity to a JSON
+   file on each `agent:step`, `agent:end`, `session:start`, `session:end` event.
+   The companion reads this file instantly — no polling, no stale sessions.
+
+2. **Fallback: SQLite polling** — Without the hook, the companion polls `state.db`
+   every 15 seconds. Sessions older than 30 minutes are ignored.
 
 Three presence states:
-- **Idle** — No active sessions → "Idle — waiting for tasks"
-- **Single task** — One session → Shows session title/last message + model + elapsed time
-- **Multi-task** — Multiple sessions → "N tasks in progress"
+- **Idle** — No active sessions → "💤 Idle — waiting for tasks"
+- **Active** — Agent working → Shows platform, model, tool emoji, and task description
+- With "live" badge when using the gateway hook
 
 ## Troubleshooting
 
@@ -200,11 +206,6 @@ src/
 ├── state-monitor.js  # SQLite polling, presence state builder
 └── discord-rpc.js    # Discord IPC connection & presence updates
 ```
-
-### Data Source Priority
-1. `activity.json` file (if `HERMES_ACTIVITY_FILE` is set)
-2. Hermes API server (if `HERMES_API_URL` is set)
-3. **SQLite database** (default, always works)
 
 ## License
 

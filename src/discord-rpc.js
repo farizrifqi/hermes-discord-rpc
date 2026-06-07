@@ -145,6 +145,7 @@ class DiscordRPC {
 
       // Small image: tool
       if (state.recentTool) {
+        activity.smallImageKey = 'tool';
         activity.smallImageText = `${state.toolEmoji || '🔧'} ${state.recentTool}`;
       } else {
         delete activity.smallImageKey;
@@ -173,17 +174,17 @@ class DiscordRPC {
 
   _scheduleReconnect() {
     if (this._destroyed || this._reconnectTimer) return;
-    this.log.info(`Reconnecting in ${this._currentReconnectDelay / 1000}s...`);
+    const delay = this._currentReconnectDelay;
+    this.log.info(`Reconnecting in ${delay / 1000}s...`);
     this._reconnectTimer = setTimeout(async () => {
       this._reconnectTimer = null;
       if (this._destroyed) return;
       try {
         await this.connect();
       } catch (e) {
-        this._currentReconnectDelay = Math.min(this._currentReconnectDelay * 2, this._maxReconnectDelay);
         this._scheduleReconnect();
       }
-    }, this._currentReconnectDelay);
+    }, delay);
     this._currentReconnectDelay = Math.min(this._currentReconnectDelay * 2, this._maxReconnectDelay);
   }
 }

@@ -1,6 +1,6 @@
 name: discord-rpc-activity
 description: Writes real-time agent activity to a JSON file for the Discord RPC companion.
-              Fires on every agent:step, agent:end, session:start, session:end.
+              Fires on agent:start, agent:step, agent:end, session:start, session:end.
 events:
   - agent:start
   - agent:step

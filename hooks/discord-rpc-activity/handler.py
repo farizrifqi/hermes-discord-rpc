@@ -2,9 +2,18 @@
 Discord RPC Activity Hook for Hermes Agent.
 
 Writes real-time agent activity to ~/.hermes/hooks/discord-rpc-activity/activity.json
-on each agent:step, agent:end, session:start, and session:end event.
+on each agent:start, agent:step, agent:end, session:start, session:end event.
 
 The Discord RPC companion reads this file for instant presence updates.
+
+Context keys available (from Hermes docs):
+  agent:start  -> platform, user_id, session_id, message
+  agent:step   -> platform, user_id, session_id, iteration, tool_names
+  agent:end    -> platform, user_id, session_id, message, response
+  session:start -> platform, user_id, session_id, session_key
+  session:end  -> platform, user_id, session_key
+
+Note: model is NOT available from hook context. The companion falls back to SQLite for model.
 
 Installation:
   Copy this directory to ~/.hermes/hooks/discord-rpc-activity/
@@ -12,7 +21,6 @@ Installation:
 """
 
 import json
-import os
 import time
 from pathlib import Path
 
@@ -26,15 +34,18 @@ ACTIVITY_FILE.parent.mkdir(parents=True, exist_ok=True)
 async def handle(event_type: str, context: dict):
     """Called by Hermes gateway on each subscribed event."""
 
+    # Common fields available in most events
+    platform = context.get("platform", "")
+    session_id = context.get("session_id", "")
+
     if event_type == "session:start":
         data = {
             "status": "active",
             "event": event_type,
-            "platform": context.get("platform", ""),
-            "session_id": context.get("session_id", ""),
+            "platform": platform,
+            "session_id": session_id,
             "title": "Starting session...",
             "tool": None,
-            "model": None,
             "iteration": 0,
             "timestamp": time.time(),
         }
@@ -43,11 +54,10 @@ async def handle(event_type: str, context: dict):
         data = {
             "status": "active",
             "event": event_type,
-            "platform": context.get("platform", ""),
-            "session_id": context.get("session_id", ""),
+            "platform": platform,
+            "session_id": session_id,
             "title": _shorten(context.get("message", ""), 80),
             "tool": None,
-            "model": None,
             "iteration": 0,
             "timestamp": time.time(),
         }
@@ -57,12 +67,11 @@ async def handle(event_type: str, context: dict):
         data = {
             "status": "active",
             "event": event_type,
-            "platform": context.get("platform", ""),
-            "session_id": context.get("session_id", ""),
+            "platform": platform,
+            "session_id": session_id,
             "title": _shorten(context.get("message", ""), 80),
             "tool": tool_names[-1] if tool_names else None,
             "tool_history": tool_names[-3:] if tool_names else [],
-            "model": None,
             "iteration": context.get("iteration", 0),
             "timestamp": time.time(),
         }
@@ -71,11 +80,10 @@ async def handle(event_type: str, context: dict):
         data = {
             "status": "idle",
             "event": event_type,
-            "platform": context.get("platform", ""),
-            "session_id": context.get("session_id", ""),
+            "platform": platform,
+            "session_id": session_id,
             "title": None,
             "tool": None,
-            "model": None,
             "iteration": 0,
             "timestamp": time.time(),
         }
@@ -84,11 +92,10 @@ async def handle(event_type: str, context: dict):
         data = {
             "status": "idle",
             "event": event_type,
-            "platform": context.get("platform", ""),
-            "session_id": context.get("session_id", ""),
+            "platform": platform,
+            "session_id": session_id,
             "title": None,
             "tool": None,
-            "model": None,
             "iteration": 0,
             "timestamp": time.time(),
         }
