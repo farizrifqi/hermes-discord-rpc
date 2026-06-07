@@ -174,16 +174,16 @@ async function main() {
   }
 
   // ── Hook event handler ──
-  let lastStateStr = '';
+  let lastSig = '';
   monitor.onHookChange(async () => {
     if (shuttingDown) return;
     try {
       const state = await monitor.getPresenceState();
-      const stateStr = JSON.stringify(state);
-      if (stateStr !== lastStateStr) {
-        lastStateStr = stateStr;
+      const sig = `${state.status}|${state.profile || '-'}|${state.refreshKey || state.lastSeen || ''}`;
+      if (sig !== lastSig) {
+        lastSig = sig;
         const icon = STATUS_ICON[state.status] || '?';
-        log.info(`⚡ ${icon} ${state.agentLabel || 'Idle'}${state.model ? `  [${state.model}]` : ''}`);
+        log.info(`⚡ ${icon} ${state.agentLabel || 'Idle'}${state.model ? ` [${state.model}]` : ''}`);
         await rpc.updatePresence(state);
       }
     } catch (err) {
@@ -197,12 +197,12 @@ async function main() {
   while (!shuttingDown) {
     try {
       const state = await monitor.getPresenceState();
-      const stateStr = JSON.stringify(state);
+      const sig = `${state.status}|${state.profile || '-'}|${state.refreshKey || state.lastSeen || ''}`;
 
-      if (stateStr !== lastStateStr) {
-        lastStateStr = stateStr;
+      if (sig !== lastSig) {
+        lastSig = sig;
         const icon = STATUS_ICON[state.status] || '?';
-        log.info(`🔄 ${icon} ${state.agentLabel || 'Idle'}${state.model ? `  [${state.model}]` : ''}`);
+        log.info(`🔄 ${icon} ${state.agentLabel || 'Idle'}${state.model ? ` [${state.model}]` : ''}`);
         await rpc.updatePresence(state);
       } else {
         log.debug('no change');
