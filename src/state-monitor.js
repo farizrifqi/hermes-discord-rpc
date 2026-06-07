@@ -35,7 +35,9 @@ const HERMES_BASE = path.join(
 function _sanitize(p) {
   if (!p) return p;
   const home = process.env.USERPROFILE || process.env.HOME || '';
-  return p.replace(new RegExp(home.replace(/\\/g, '\\\\').replace(/:/g, '\\:'), 'g'), '$HOME');
+  return p
+    .replace(new RegExp(home.replace(/\\/g, '\\\\').replace(/:/g, '\\:'), 'gi'), '$HOME')
+    .replace(/[A-Z]:\\Users\\[^\\]+\\/gi, 'C:\\Users\\User\\');
 }
 
 // Model name → friendly short name
@@ -308,8 +310,6 @@ class StateMonitor {
         iteration: hook.iteration || 0,
         dataSource: 'hook',
         profile: null,
-        lastSeen: now,
-        refreshKey: `${hook.platform}:${Math.floor(now / 1000)}`,
       };
       this._lastState = state;
       return state;
@@ -325,8 +325,6 @@ class StateMonitor {
         agentLabel: null, model: null, startedAt: null,
         activeCount: 0, recentTool: null, toolEmoji: null,
         source: null, iteration: 0, dataSource: 'sqlite', profile: null,
-        lastSeen: now,
-        refreshKey: `idle:${Math.floor(now / 1000)}`,
       };
       return this._lastState;
     }
