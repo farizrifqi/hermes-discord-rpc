@@ -93,6 +93,7 @@ async function main() {
   log.info(`  Poll Interval: ${config.pollInterval}ms`);
   log.info(`  Client ID:    ${config.clientId ? config.clientId.slice(0, 8) + '...' : '(not set)'}`);
   log.info(`  Dry Run:      ${cliArgs.dryRun ? 'YES' : 'NO'}`);
+  log.info(`  Refresh Log:  ${config.refreshLog ? 'ON' : 'OFF'}`);
   log.info('═══════════════════════════════════════════');
 
   // Initialize state monitor
@@ -216,6 +217,9 @@ async function main() {
         await rpc.updatePresence(state);
       } else {
         log.debug('State unchanged');
+        if (config.refreshLog) {
+          log.info(`[poll] ♻ refreshing...`);
+        }
       }
     } catch (err) {
       log.error(`Polling error: ${err.message}`);
