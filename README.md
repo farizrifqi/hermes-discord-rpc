@@ -9,7 +9,46 @@ Show your [Hermes Agent](https://hermes-agent.nousresearch.com/) activity as **D
 
 > **⚠️ Proof-of-concept build.** The code was generated and dry-run verified (SQLite reads, payload construction). Expect bugs. Use at your own risk. This is a temporary companion while waiting for the official [`hermes-companion`](https://github.com/NousResearch/hermes-agent/issues/28893) plugin.
 
-## Features
+## Data Sources
+
+### Primary: Gateway Hook (real-time)
+When the Hermes Gateway Hook is installed, the companion receives live `agent:step` events —
+updates appear instantly while the agent is working, with tool names and iteration counts.
+
+### Fallback: SQLite polling
+Without the hook, the companion polls `state.db` every 10 seconds.
+Sessions older than 30 minutes are ignored (stale session filtering).
+
+## Installing the Gateway Hook (recommended)
+
+For real-time presence updates, install the Hermes Gateway Hook:
+
+```bash
+# Copy the hook files to your Hermes hooks directory
+cp -r hooks/discord-rpc-activity ~/.hermes/hooks/
+```
+
+Or manually create these two files:
+
+**`~/.hermes/hooks/discord-rpc-activity/HOOK.yaml`:**
+```yaml
+name: discord-rpc-activity
+description: Writes real-time agent activity to a JSON file for the Discord RPC companion
+events:
+  - agent:start
+  - agent:step
+  - agent:end
+  - session:start
+  - session:end
+```
+
+**`~/.hermes/hooks/discord-rpc-activity/handler.py`:**
+See [`hooks/discord-rpc-activity/handler.py`](hooks/discord-rpc-activity/handler.py) in this repo.
+
+After creating the hook files, restart your Hermes gateway. The hook auto-creates
+`~/.hermes/hooks/discord-rpc-activity/activity.json` on the next agent:step event.
+The companion auto-detects this file and switches to real-time mode (you'll see "live"
+in the presence text).
 
 - **Real-time presence** — Shows active Hermes sessions on your Discord profile
 - **Multi-task awareness** — Displays "N tasks in progress" when multiple sessions are active
