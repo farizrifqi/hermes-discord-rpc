@@ -215,9 +215,6 @@ src/
 ├── index.js          # Main entry, CLI parsing, polling loop
 ├── config.js         # Config loading from .env and CLI args
 ├── state-monitor.js  # SQLite polling, presence state builder
-| With "live" badge when using the gateway hook
-|
-
 ## How it detects multi-agent
 
 The companion scans ALL Hermes profile databases to find the most recently active agent:
