@@ -11,9 +11,10 @@ Context keys available (from Hermes docs):
   agent:step   -> platform, user_id, session_id, iteration, tool_names
   agent:end    -> platform, user_id, session_id, message, response
   session:start -> platform, user_id, session_id, session_key
-  session:end  -> platform, user_id, session_key
+  session:end   -> platform, user_id, session_key
 
-Note: model is NOT available from hook context. The companion falls back to SQLite for model.
+Note: model and profile name are NOT available from hook context.
+The companion falls back to SQLite for model and multi-agent detection.
 
 Installation:
   Copy this directory to ~/.hermes/hooks/discord-rpc-activity/
@@ -34,18 +35,14 @@ ACTIVITY_FILE.parent.mkdir(parents=True, exist_ok=True)
 async def handle(event_type: str, context: dict):
     """Called by Hermes gateway on each subscribed event."""
 
-    # Common fields available in most events
     platform = context.get("platform", "")
     session_id = context.get("session_id", "")
-    # Profile name tells us which agent is active (default, coding-agent, xresearch, etc.)
-    profile = context.get("profile", "") or context.get("agent", "") or platform
 
     if event_type == "session:start":
         data = {
             "status": "active",
             "event": event_type,
             "platform": platform,
-            "profile": profile,
             "session_id": session_id,
             "title": "Starting session...",
             "tool": None,
@@ -58,7 +55,6 @@ async def handle(event_type: str, context: dict):
             "status": "active",
             "event": event_type,
             "platform": platform,
-            "profile": profile,
             "session_id": session_id,
             "title": _shorten(context.get("message", ""), 80),
             "tool": None,
@@ -72,7 +68,6 @@ async def handle(event_type: str, context: dict):
             "status": "active",
             "event": event_type,
             "platform": platform,
-            "profile": profile,
             "session_id": session_id,
             "title": _shorten(context.get("message", ""), 80),
             "tool": tool_names[-1] if tool_names else None,
@@ -86,7 +81,6 @@ async def handle(event_type: str, context: dict):
             "status": "idle",
             "event": event_type,
             "platform": platform,
-            "profile": profile,
             "session_id": session_id,
             "title": None,
             "tool": None,
@@ -99,7 +93,6 @@ async def handle(event_type: str, context: dict):
             "status": "idle",
             "event": event_type,
             "platform": platform,
-            "profile": profile,
             "session_id": session_id,
             "title": None,
             "tool": None,
@@ -112,9 +105,16 @@ async def handle(event_type: str, context: dict):
 
     # Write atomically (write to temp, then rename)
     tmp = ACTIVITY_FILE.with_suffix(".tmp")
-    with open(tmp, "w", encoding="utf-8") as f:
-        json.dump(data, f, ensure_ascii=False)
-    tmp.rename(ACTIVITY_FILE)
+    try:
+        with open(tmp, "w", encoding="utf-8") as f:
+            json.dump(data, f, ensure_ascii=False)
+        tmp.rename(ACTIVITY_FILE)
+    except Exception:
+        # Never crash the gateway
+        try:
+            tmp.unlink(missing_ok=True)
+        except Exception:
+            pass
 
 
 def _shorten(text: str, max_len: int = 80) -> str:

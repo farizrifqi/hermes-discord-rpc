@@ -190,7 +190,7 @@ async function main() {
       const stateStr = JSON.stringify(state);
       if (stateStr !== hookStateStr) {
         hookStateStr = stateStr;
-        log.info(`[hook] State changed: status=${state.status}, detail=${(state.detail || '').slice(0, 50)}`);
+        log.info(`[hook] Status=${state.status} profile=${state.profile || '-'} detail=${(state.detail || '').slice(0, 60)}`);
         await rpc.updatePresence(state);
       }
     } catch (err) {
@@ -198,33 +198,29 @@ async function main() {
     }
   });
 
-  // ── Polling loop (fallback) ──
-  // Only updates presence when the hook file is not being used.
-  // This handles the SQLite fallback path and catches any missed hook events.
-  log.info('Starting presence polling loop (fallback mode)...');
+  // ── Polling loop (always runs) ──
+  // Continuously polls all profile databases to detect state changes.
+  // Runs alongside the hook watcher — hook is instant, polling is the safety net.
+  log.info('Starting presence polling loop...');
   let lastStateStr = '';
 
   while (!shuttingDown) {
     try {
-      // Only poll if not using hook (hook events are handled above)
-      if (!monitor.isUsingHook()) {
-        const state = await monitor.getPresenceState();
-        const stateStr = JSON.stringify(state);
+      const state = await monitor.getPresenceState();
+      const stateStr = JSON.stringify(state);
 
-        // Only update if state changed
-        if (stateStr !== lastStateStr) {
-          log.info(`[poll] State changed: status=${state.status}, detail=${(state.detail || '').slice(0, 50)}`);
-          lastStateStr = stateStr;
-          await rpc.updatePresence(state);
-        } else {
-          log.debug('State unchanged, skipping update');
-        }
+      if (stateStr !== lastStateStr) {
+        log.info(`[poll] Status=${state.status} profile=${state.profile || '-'} src=${state.dataSource} detail=${(state.detail || '').slice(0, 60)}`);
+        lastStateStr = stateStr;
+        hookStateStr = stateStr; // keep hook tracker in sync
+        await rpc.updatePresence(state);
+      } else {
+        log.debug('State unchanged');
       }
     } catch (err) {
       log.error(`Polling error: ${err.message}`);
     }
 
-    // Wait for next poll
     await new Promise(r => setTimeout(r, config.pollInterval));
   }
 }
