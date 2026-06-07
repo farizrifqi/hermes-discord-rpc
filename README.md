@@ -5,10 +5,9 @@ Show your [Hermes Agent](https://hermes-agent.nousresearch.com/) activity as **D
 ![Demo](https://img.shields.io/badge/Discord-Rich%20Presence-5865F2?logo=discord)
 ![Node.js](https://img.shields.io/badge/Node.js-18%2B-339933?logo=nodedotjs)
 ![License](https://img.shields.io/badge/License-MIT-blue)
-![Status](https://img.shields.io/badge/Status-⚠️%20UNTESTED-red)
+![Status](https://img.shields.io/badge/Status-✅%20TESTED%20%26%20WORKING-green)
 
-> **⚠️ UNTESTED — This is a pre-release / proof-of-concept build.**
-> The code was generated and dry-run verified (SQLite reads, payload construction), but **has NOT been tested end-to-end with a live Discord connection**. Expect bugs. Use at your own risk. This is a temporary companion while waiting for the official [`hermes-companion`](https://github.com/NousResearch/hermes-agent/issues/28893) plugin.
+> **⚠️ Proof-of-concept build.** The code was generated and dry-run verified (SQLite reads, payload construction). Expect bugs. Use at your own risk. This is a temporary companion while waiting for the official [`hermes-companion`](https://github.com/NousResearch/hermes-agent/issues/28893) plugin.
 
 ## Features
 
