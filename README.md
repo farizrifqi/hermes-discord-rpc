@@ -104,7 +104,7 @@ node src/index.js [options]
 1. Press `Win + R`, type `shell:startup`, press Enter
 2. Create a shortcut to `install.bat` or a batch file containing:
    ```bat
-   cd /d C:\Users\F\hermes-discord-rpc
+   cd /d %~dp0
    node src/index.js
    ```
 
@@ -115,8 +115,8 @@ node src/index.js [options]
 3. Trigger: "When I log on"
 4. Action: Start a program
    - Program: `node`
-- Arguments: `src/index.js`
-   - Start in: `C:\Users\F\hermes-discord-rpc`
+   - Arguments: `src/index.js`
+   - Start in: `C:\path\to\hermes-discord-rpc`
 
 ## How It Works
 
