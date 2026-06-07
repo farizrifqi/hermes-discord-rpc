@@ -10,7 +10,7 @@ Show your [Hermes Agent](https://hermes-agent.nousresearch.com/) activity as **D
 ## Preview
 
 ![Discord RPC Preview](https://i.imgur.com/gzWXAIK.png)
-![Console Preview](https://i.imgur.com/tIQqvQQ.jpeg)
+![Console Preview](https://i.imgur.com/aHFcgqR.png)
 
 > **⚠️ Proof-of-concept build.** The code was generated and dry-run verified (SQLite reads, payload construction). Expect bugs. Use at your own risk. This is a temporary companion while waiting for the official [`hermes-companion`](https://github.com/NousResearch/hermes-agent/issues/28893) plugin.
 
