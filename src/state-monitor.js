@@ -310,6 +310,7 @@ class StateMonitor {
         iteration: hook.iteration || 0,
         dataSource: 'hook',
         profile: null,
+        lastSeen: now,
       };
       this._lastState = state;
       return state;
@@ -325,6 +326,7 @@ class StateMonitor {
         agentLabel: null, model: null, startedAt: null,
         activeCount: 0, recentTool: null, toolEmoji: null,
         source: null, iteration: 0, dataSource: 'sqlite', profile: null,
+        lastSeen: now,
       };
       return this._lastState;
     }
@@ -346,7 +348,6 @@ class StateMonitor {
       dataSource: 'sqlite',
       profile: primary._profile,
       lastSeen: now,
-      refreshKey: `${primary._profile}:${Math.floor(now / 1000)}`,
     };
     this._lastState = state;
     return state;

@@ -6,6 +6,7 @@ const { StateMonitor } = require('./state-monitor');
 const { DiscordRPC } = require('./discord-rpc');
 
 // ── Log sanitizer ─────────────────────────────────────────────
+// Scrubs user-specific info from logs for safe screenshots/code images.
 const USER_HOME = process.env.USERPROFILE || process.env.HOME || '';
 function sanitize(str) {
   if (!str) return str;
@@ -99,14 +100,13 @@ async function main() {
   log.info(`  Poll: ${config.pollInterval}ms`);
   log.info(`  Profiles: ${monitor.getProfileCount()}`);
   log.info('  Discord: waiting...');
+
   try {
     await monitor.connect();
   } catch (err) {
     log.error(err.message);
     process.exit(1);
   }
-
-  log.info(`  Profiles: ${monitor.getProfileCount()}`);
 
   // Dry run mode
   if (cliArgs.dryRun) {
@@ -197,7 +197,8 @@ async function main() {
       if (sig !== lastSig) {
         lastSig = sig;
         const icon = STATUS_ICON[state.status] || '?';
-        log.info(`⚡ ${icon} ${state.agentLabel || 'Idle'}${state.model ? ` [${state.model}]` : ''}`);
+        const srcIcon = SRC_ICON[state.dataSource] || '';
+        log.info(`${srcIcon} ${icon} ${state.agentLabel || 'Idle'}${state.model ? `  [${state.model}]` : ''}`);
         await rpc.updatePresence(state);
       }
     } catch (err) {
@@ -216,7 +217,8 @@ async function main() {
       if (sig !== lastSig) {
         lastSig = sig;
         const icon = STATUS_ICON[state.status] || '?';
-        log.info(`🔄 ${icon} ${state.agentLabel || 'Idle'}${state.model ? ` [${state.model}]` : ''}`);
+        const srcIcon = SRC_ICON[state.dataSource] || '';
+        log.info(`${srcIcon} ${icon} ${state.agentLabel || 'Idle'}${state.model ? `  [${state.model}]` : ''}`);
         await rpc.updatePresence(state);
       } else {
         log.debug('no change');
