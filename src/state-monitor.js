@@ -9,7 +9,7 @@ const initSqlJs = require('sql.js');
  *
  * 1. PRIMARY: ~/.hermes/hooks/discord-rpc-activity/activity.json
  *    Written in real-time by the Hermes Gateway Hook on agent:step events.
- *    This is the live source — always accurate, never stale.
+ *    Watched via fs.watch for instant change detection.
  *
  * 2. FALLBACK: SQLite state.db (polled)
  *    Used when the hook file doesn't exist (hook not installed) or is stale.
@@ -19,6 +19,8 @@ const ACTIVITY_FILE = path.join(
   process.env.USERPROFILE || process.env.HOME || '',
   '.hermes', 'hooks', 'discord-rpc-activity', 'activity.json'
 );
+
+const ACTIVITY_DIR = path.dirname(ACTIVITY_FILE);
 
 // Model name → friendly short name
 const MODEL_ALIASES = {
@@ -64,6 +66,9 @@ class StateMonitor {
     this._lastState = null;
     this._staleThreshold = (config.staleThresholdSeconds || 1800) * 1000;
     this._usingHook = false;
+    this._hookWatcher = null;
+    this._hookSubscribers = [];
+    this._cachedHookData = null;
   }
 
   async connect() {
@@ -79,19 +84,80 @@ class StateMonitor {
       }
     }
 
-    // Check if hook file exists
+    // Check if hook file exists or directory exists (hook may not have written yet)
     if (fs.existsSync(ACTIVITY_FILE)) {
       this._usingHook = true;
       this.log.info(`Hook activity file detected: ${ACTIVITY_FILE}`);
+      // Read initial state
+      const initial = this._readHookActivity();
+      if (initial) this._cachedHookData = initial;
+    } else if (fs.existsSync(ACTIVITY_DIR)) {
+      this.log.info(`Hook directory exists but no activity file yet — watching for creation: ${ACTIVITY_DIR}`);
     } else {
       this.log.info('No hook activity file — using SQLite polling only');
       this.log.info('Install the gateway hook for real-time updates:');
       this.log.info('  ~/.hermes/hooks/discord-rpc-activity/');
     }
+
+    // Set up file watcher for real-time hook events
+    this._startHookWatcher();
+  }
+
+  /**
+   * Watch the hook activity directory for file changes.
+   * This gives instant updates instead of waiting for the next poll cycle.
+   */
+  _startHookWatcher() {
+    try {
+      // Watch the directory so we detect file creation too
+      const watchTarget = fs.existsSync(ACTIVITY_DIR) ? ACTIVITY_DIR : path.dirname(ACTIVITY_DIR);
+      this._hookWatcher = fs.watch(watchTarget, { persistent: true }, (eventType, filename) => {
+        if (filename && filename !== path.basename(ACTIVITY_FILE)) return;
+
+        // Debounce rapid events (agent:step fires frequently)
+        if (this._watchDebounceTimer) clearTimeout(this._watchDebounceTimer);
+        this._watchDebounceTimer = setTimeout(() => {
+          this._watchDebounceTimer = null;
+          try {
+            const data = this._readHookActivity();
+            if (data) {
+              this._cachedHookData = data;
+              this._usingHook = true;
+              // Notify all subscribers (the main loop)
+              for (const cb of this._hookSubscribers) {
+                try { cb(data); } catch (e) { /* ignore subscriber errors */ }
+              }
+            }
+          } catch (e) {
+            this.log.debug(`Hook file read error: ${e.message}`);
+          }
+        }, 100); // 100ms debounce
+      });
+      this.log.info(`File watcher active on: ${watchTarget}`);
+    } catch (e) {
+      this.log.warn(`Could not start file watcher: ${e.message}`);
+    }
+  }
+
+  /**
+   * Subscribe to hook file change events.
+   * callback(hookData) is called whenever the hook file is updated.
+   */
+  onHookChange(callback) {
+    this._hookSubscribers.push(callback);
   }
 
   disconnect() {
     if (this.db) { this.db.close(); this.db = null; }
+    if (this._hookWatcher) {
+      this._hookWatcher.close();
+      this._hookWatcher = null;
+    }
+    if (this._watchDebounceTimer) {
+      clearTimeout(this._watchDebounceTimer);
+      this._watchDebounceTimer = null;
+    }
+    this._hookSubscribers = [];
   }
 
   /**
@@ -153,11 +219,13 @@ class StateMonitor {
     if (hook && hook.status === 'active') {
       const sourceIcon = SOURCE_ICONS[hook.platform] || '💻';
       const toolEmoji = hook.tool ? (TOOL_EMOJI[hook.tool] || '🔧') : null;
+      // Use profile name if available (e.g. "coding-agent"), fallback to platform
+      const agentName = hook.profile || hook.platform;
 
       const state = {
         status: 'active',
         detail: hook.title || 'Working...',
-        agentLabel: `${sourceIcon} ${hook.platform}`,
+        agentLabel: `${sourceIcon} ${agentName}`,
         model: MODEL_ALIASES[hook.model] || hook.model || null,
         startedAt: hook.timestamp ? Math.floor(hook.timestamp) : null,
         activeCount: 1,
