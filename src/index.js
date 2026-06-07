@@ -187,6 +187,7 @@ async function main() {
     state.model || '-',
     state.dataSource || '-',
     state.iteration || 0,
+    state.startedAt || 0,
   ].join('|');
 
   monitor.onHookChange(async () => {
