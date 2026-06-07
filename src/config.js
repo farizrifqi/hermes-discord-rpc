@@ -43,6 +43,10 @@ function loadConfig(cliArgs = {}) {
   const staleThresholdSeconds = parseInt(
     cliArgs.staleThreshold || env.STALE_THRESHOLD_SECONDS || '1800', 10
   );
+  const excludedProfiles = (env.EXCLUDED_PROFILES || '')
+    .split(',')
+    .map(s => s.trim())
+    .filter(Boolean);
 
   // Resolve ~ and %VAR% in paths
   let resolvedDbPath = dbPath.replace(/^~/, process.env.USERPROFILE || process.env.HOME || '');
@@ -56,6 +60,7 @@ function loadConfig(cliArgs = {}) {
     activityFile,
     logLevel,
     staleThresholdSeconds,
+    excludedProfiles,
   };
 }
 
