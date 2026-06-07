@@ -48,7 +48,7 @@ class DiscordRPC {
     this.client.on('ready', () => {
       this.connected = true;
       this._currentReconnectDelay = this._reconnectDelay;
-      this.log.info(`Discord RPC connected as: ${this.client.user?.username || 'Unknown'}`);
+      this.log.info('Discord: ✓ Connected');
     });
 
     this.client.on('disconnected', () => {
