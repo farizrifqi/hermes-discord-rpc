@@ -112,6 +112,7 @@ class StateMonitor {
    */
   async _loadAllDatabases() {
     const SQL = await initSqlJs();
+    this._sql = SQL;
     const dbPaths = this._discoverDatabasePaths();
     const loaded = [];
     const skipped = [];
@@ -143,6 +144,34 @@ class StateMonitor {
     if (skipped.length > 0) {
       this.log.info(`  Excluded: ${skipped.join(', ')}`);
     }
+    this._lastRefresh = Date.now();
+  }
+
+  // Re-read all state.db files from disk so the polling loop picks up
+  // new sessions/messages written by the running Hermes agent.
+  // Uses a time gate (_refreshIntervalMs) to avoid re-reading on every
+  // single poll cycle — defaults to every 5 seconds.
+  _refreshDatabases() {
+    if (!this._sql) return;
+    const now = Date.now();
+    const interval = this._refreshIntervalMs || 5000;
+    if (now - this._lastRefresh < interval) return;
+
+    const dbPaths = this._discoverDatabasePaths();
+    for (const { profile, dbPath } of dbPaths) {
+      if (this._excluded.has(profile)) continue;
+      try {
+        const buffer = fs.readFileSync(dbPath);
+        const db = new this._sql.Database(buffer);
+        if (this._dbs[profile]) {
+          try { this._dbs[profile].close(); } catch (e) { /* ignore */ }
+        }
+        this._dbs[profile] = db;
+      } catch (e) {
+        this.log.debug(`Refresh failed for ${profile}: ${e.message}`);
+      }
+    }
+    this._lastRefresh = now;
   }
 
   _discoverDatabasePaths() {
@@ -317,6 +346,7 @@ class StateMonitor {
     }
 
     // ── FALLBACK: Multi-profile SQLite scan ──
+    this._refreshDatabases();
     const primary = this._getMostActiveSession(now);
 
     if (!primary) {
