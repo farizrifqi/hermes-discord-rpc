@@ -378,6 +378,7 @@ class StateMonitor {
       dataSource: 'sqlite',
       profile: primary._profile,
       lastSeen: now,
+      lastMsgMs: primary.last_msg_ms || 0,
     };
     this._lastState = state;
     return state;
